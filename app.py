@@ -29,9 +29,6 @@ logging.basicConfig(level=logging.DEBUG if DEBUG else logging.INFO)
 
 STEPS_KEY = "steps"
 
-# brute solution for now
-runs = {}
-
 def task_a():
     logger.info("Running task A")
     return True
@@ -50,71 +47,34 @@ tasks_mapping = {
     "task_c": task_c
 }
 
-async def run_task(run_id: str, task_name: str, rdb_conn):
+async def run_task(run_id: str,
+                   all_steps: List[StepRuntime],
+                   step: StepRuntime,
+                   task_name: str,
+                   rdb_conn
+    ):
     logger.debug(f"Running task: {task_name} for run_id: {run_id}")
-    # if task_name not in tasks_mapping:
-    #     logger.error(f"Task {task_name} not found!")
-    #     runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.failed
-    #     return  # just mark failed, don't throw
-    #
-    # task = tasks_mapping[task_name]
-    #
-    # try:
-    #     runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.running
-    #     result = await asyncio.to_thread(task)
-    #     runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.success
-    #     logger.debug("Task completed successfully")
-    #     return result
-    # except Exception as e:
-    #     runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.failed
-    #     logger.error(f"Task {task_name} failed with error: {e}")
 
-    # Fetch current workflow state
-    data = await rdb_conn.hgetall(run_id)
-    if not data:
-        logger.error(f"Run ID {run_id} not found in Redis")
-        return
-
-    # Find the right step
-    steps = [StepRuntime.deserialize(data=step) for step in json.loads(data[STEPS_KEY])]
-    step = next((step for step in steps if task_name in step.tasks), None)
-    logger.debug(f"step: {step}")
-    if not step:
-        logger.error(f"Task {task_name} not found in any step")
-        return
-
-    # Check if task function exists
     task_func = tasks_mapping.get(task_name)
     if not task_func:
         logger.error(f"Task {task_name} not found in tasks_mapping")
         step.tasks[task_name] = TaskStatus.failed
+    else:
+        try:
+            step.tasks[task_name] = TaskStatus.running
+            await asyncio.to_thread(task_func)
+            step.tasks[task_name] = TaskStatus.success
 
+        except Exception as e:
+            logger.error(f"Task {task_name} failed: {e}")
+            step.tasks[task_name] = TaskStatus.failed
+
+        # Always persist back the full steps list
         await rdb_conn.hset(run_id, mapping={
-            "steps": json.dumps([s.serialize() for s in steps]),
+            "steps": json.dumps([s.serialize() for s in all_steps])
         })
-        return
-
-    # Run the task
-    try:
-        step.tasks[task_name] = TaskStatus.running
-        await rdb_conn.hset(run_id, mapping={
-            "steps": json.dumps([s.serialize() for s in steps]),
-        })
-
-        await asyncio.to_thread(task_func)
-        step.tasks[task_name] = TaskStatus.success
-
-    except Exception as e:
-        logger.error(f"Task {task_name} failed with error: {e}")
-        step.tasks[task_name] = TaskStatus.failed
-
-    finally:
-        # ALWAYS update Redis with final task status (success OR failed)
-        await rdb_conn.hset(run_id, mapping={
-            "steps": json.dumps([s.serialize() for s in steps]),
-        })
-
         logger.debug(f"Task {task_name} finished for run {run_id}")
+
 
 def debug_only():
     if not DEBUG:
@@ -148,22 +108,20 @@ async def run_workflow(request:Request, workflow: WorkflowRequest):
     await rdb.hset(run_id, mapping={
         STEPS_KEY:json.dumps(serialized_steps)
     })
-    # runs[run_id] = {STEPS_KEY:runtime_steps}
+
     logger.debug(f"steps: {runtime_steps}")
 
-    async def runner(steps_list: List[StepRuntime]):
-       for step in steps_list:
+    async def runner(run_steps: List[StepRuntime], r_id: str, rdb_conn):
+        for step in run_steps:
             if step.type == StepType.parallel:
-                logger.debug("running parallel steps")
                 await asyncio.gather(
-                    *[run_task(run_id, task, rdb) for task in step.tasks]
+                    *[run_task(r_id, run_steps, step, task, rdb_conn) for task in step.tasks]
                 )
             elif step.type == StepType.sequential:
-                logger.debug("running sequential steps")
                 for task in step.tasks:
-                    await run_task(run_id, task, rdb)
+                    await run_task(r_id, run_steps ,step, task, rdb_conn)
 
-    asyncio.create_task(runner(runtime_steps))
+    asyncio.create_task(runner(run_steps=runtime_steps, r_id=run_id, rdb_conn=rdb))
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
