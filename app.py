@@ -53,6 +53,7 @@ async def run_task(run_id: str, task_name: str, step_idx: int):
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     else:
         logger.error(f"Task {task_name} not found in task mapping")
+        runs[run_id][STEPS_KEY][step_idx].tasks[task_name] = TaskStatus.failed
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task {task_name} not found")
 
 def debug_only():
