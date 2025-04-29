@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+STEPS_KEY = "steps"
 
 # brute solution for now
 runs = {}
@@ -39,15 +40,15 @@ async def run_task(run_id: str, task_name: str, step_idx: int):
         task = tasks_mapping[task_name]
         try:
             # Simulate task execution
-            runs[run_id][step_idx].tasks[task_name] = TaskStatus.running
+            runs[run_id][STEPS_KEY][step_idx].tasks[task_name] = TaskStatus.running
             # Task execution
             result = await asyncio.to_thread(task)
             logger.debug(f"Task {task_name} completed with result: {result}")
-            runs[run_id][step_idx].tasks[task_name] = TaskStatus.success
+            runs[run_id][STEPS_KEY][step_idx].tasks[task_name] = TaskStatus.success
             return result
         except Exception as e:
             # Handle task failure
-            runs[run_id][step_idx].tasks[task_name] = TaskStatus.failed
+            runs[run_id][STEPS_KEY][step_idx].tasks[task_name] = TaskStatus.failed
             logger.error(f"Task {task_name} failed with error: {e}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     else:
@@ -77,7 +78,7 @@ async def run_workflow(request: WorkflowRequest):
         for idx, step in enumerate(request.steps)
     ]
 
-    runs[run_id] = runtime_steps
+    runs[run_id] = {STEPS_KEY:runtime_steps}
     logger.debug(f"steps: {runtime_steps}")
 
     async def runner(steps_list: List[StepRuntime]):
@@ -104,8 +105,19 @@ async def run_workflow(request: WorkflowRequest):
 async def workflow_status(run_id: str):
     if run_id not in runs:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run ID not found")
-    return {"run_id": run_id, "tasks": runs[run_id]}
 
+    steps:List[StepRuntime] = runs[run_id]["steps"]
+    serialized_steps = [
+        {
+            "step_idx": step.step_idx,
+            "workflow_id": step.workflow_id,
+            "type": step.type.value,
+            "tasks": {task: task_status.value for task, task_status in step.tasks.items()}
+        }
+        for step in steps
+    ]
+
+    return {"run_id": run_id, "steps": serialized_steps}
 
 if __name__ == "__main__":
     import uvicorn
