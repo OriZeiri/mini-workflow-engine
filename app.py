@@ -9,6 +9,7 @@ import os
 
 import redis.asyncio as redis
 from contextlib import asynccontextmanager
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -24,21 +25,23 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+logging.basicConfig(level=logging.DEBUG if DEBUG else logging.INFO)
+
 STEPS_KEY = "steps"
 
 # brute solution for now
 runs = {}
 
 def task_a():
-    print("Running task A")
+    logger.info("Running task A")
     return True
 
 def task_b():
-    print("Running task B")
+    logger.info("Running task B")
     return True
 
 def task_c():
-    print("Running task C")
+    logger.info("Running task C")
     return True
 
 tasks_mapping = {
@@ -69,12 +72,18 @@ def debug_only():
     if not DEBUG:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Debug mode is not enabled")
 
+
+
 @app.get("/runs", dependencies=[Depends(debug_only)])
-async def get_runs():
-    return runs
+async def get_runs(request: Request):
+    rdb_client = request.app.state.redis
+
+    keys = await rdb_client.keys("*")
+    return {"run_ids": keys}
+
 
 @app.post("/workflow")
-async def run_workflow(request: WorkflowRequest):
+async def run_workflow(request:Request, workflow: WorkflowRequest):
     run_id = str(uuid.uuid4())
     logger.debug(f"running run_id:{run_id}")
 
@@ -84,21 +93,25 @@ async def run_workflow(request: WorkflowRequest):
             tasks={task: TaskStatus.pending for task in step.tasks},
             step_idx=idx
         )
-        for idx, step in enumerate(request.steps)
+        for idx, step in enumerate(workflow.steps)
     ]
-
-    runs[run_id] = {STEPS_KEY:runtime_steps}
+    serialized_steps = [step.serialize() for step in runtime_steps]
+    rdb = request.app.state.redis
+    await rdb.hset(run_id, mapping={
+        STEPS_KEY:json.dumps(serialized_steps)
+    })
+    # runs[run_id] = {STEPS_KEY:runtime_steps}
     logger.debug(f"steps: {runtime_steps}")
 
     async def runner(steps_list: List[StepRuntime]):
        for step in steps_list:
             if step.type == StepType.parallel:
                 await asyncio.gather(
-                    *[run_task(run_id, task,step.step_idx) for task in step.tasks]
+                    *[run_task(run_id, task, rdb) for task in step.tasks]
                 )
             elif step.type == StepType.sequential:
                 for task in step.tasks:
-                    await run_task(run_id, task,step.step_idx)
+                    await run_task(run_id, task, rdb)
 
     asyncio.create_task(runner(runtime_steps))
 
