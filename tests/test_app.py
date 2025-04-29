@@ -58,3 +58,60 @@ async def test_run_task_unknown_sets_failed():
 
     assert step.tasks["does_not_exist"] == TaskStatus.failed
     mock_redis.hset.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_workflow_status_success(mock_redis):
+    app.state.redis = mock_redis
+    run_id = "test_run_id"
+
+    # Mock Redis hgetall response
+    steps_data = [
+        {"type": "sequential", "tasks": {"task_a": "pending"}, "step_idx": 0}
+    ]
+    mock_redis.hgetall.return_value = {
+        "steps": json.dumps(steps_data)
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.get(f"/workflow_status/{run_id}")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["run_id"] == run_id
+    assert isinstance(body["steps"], list)
+    assert body["steps"][0]["tasks"]["task_a"] == "pending"
+
+
+import os
+
+@pytest.mark.asyncio
+async def test_get_runs_debug_true(mock_redis):
+    app.state.redis = mock_redis
+    from src import app as app_module
+    app_module.DEBUG = True
+
+    mock_redis.keys.return_value = ["run1", "run2"]
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.get("/runs")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data["run_ids"]) == {"run1", "run2"}
+
+
+@pytest.mark.asyncio
+async def test_get_runs_debug_false(mock_redis):
+    app.state.redis = mock_redis
+    from src import app as app_module
+    app_module.DEBUG = False
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.get("/runs")
+
+    assert resp.status_code == 403
+
