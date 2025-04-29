@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, status, Depends
+from fastapi import FastAPI, HTTPException, status, Depends, Request
 from fastapi.responses import JSONResponse
 import asyncio
 import uuid
@@ -7,8 +7,21 @@ import logging
 from typing import List
 import os
 
+import redis.asyncio as redis
+from contextlib import asynccontextmanager
+
 logger = logging.getLogger(__name__)
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup code
+    rdb_client = await redis.from_url("redis://localhost:6379", decode_responses=True)
+    app.state.redis = rdb_client
+    yield
+    # Shutdown code
+    await app.state.redis.close()
+
+app = FastAPI(lifespan=lifespan)
 
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 STEPS_KEY = "steps"
