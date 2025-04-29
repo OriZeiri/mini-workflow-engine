@@ -75,10 +75,10 @@ async def run_task(run_id: str,
             step.tasks[task_name] = TaskStatus.failed
 
         # Always persist back the full steps list
-        await rdb_conn.hset(run_id, mapping={
-            "steps": json.dumps([s.serialize() for s in all_steps])
-        })
-        logger.debug(f"Task {task_name} finished for run {run_id}")
+    await rdb_conn.hset(run_id, mapping={
+        "steps": json.dumps([s.serialize() for s in all_steps])
+    })
+    logger.debug(f"Task {task_name} finished for run {run_id}")
 
 
 def debug_only():
