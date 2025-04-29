@@ -3,3 +3,6 @@ uvicorn
 pydantic
 redis
 pytest
+httpx
+httpx[http2]
+pytest-asyncio
