@@ -69,7 +69,6 @@ async def run_workflow(request: WorkflowRequest):
         StepRuntime(
             type=step.type,
             tasks={task: TaskStatus.pending for task in step.tasks},
-            workflow_id=run_id,
             step_idx=idx
         )
         for idx, step in enumerate(request.steps)
@@ -107,7 +106,6 @@ async def workflow_status(run_id: str):
     serialized_steps = [
         {
             "step_idx": step.step_idx,
-            "workflow_id": step.workflow_id,
             "type": step.type.value,
             "tasks": {task: task_status.value for task, task_status in step.tasks.items()}
         }

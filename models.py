@@ -23,7 +23,6 @@ class StepInput(BaseModel):
 
 class StepRuntime(StepInput):
     tasks: Dict[str, TaskStatus]
-    workflow_id: Optional[str] = None
     step_idx: Optional[int] = None
 
 class WorkflowRequest(BaseModel):
