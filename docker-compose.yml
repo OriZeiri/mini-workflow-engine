@@ -15,4 +15,4 @@ services:
     depends_on:
       - redis
     environment:
-      - DEBUG=true
+      - DEBUG=false

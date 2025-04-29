@@ -1,5 +1,5 @@
 import pytest
-from app.models import StepRuntime, StepType, TaskStatus, WorkflowRequest,STEPS_DEBUG_VALUE
+from src.models import StepRuntime, StepType, TaskStatus, WorkflowRequest,STEPS_DEBUG_VALUE
 
 def test_step_runtime_serialize():
     """

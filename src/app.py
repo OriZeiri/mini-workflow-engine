@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, status, Depends, Request
 from fastapi.responses import JSONResponse
 import asyncio
 import uuid
-from models import WorkflowRequest, StepType, TaskStatus, StepRuntime
+from src.models import WorkflowRequest, StepType, TaskStatus, StepRuntime
 import logging
 from typing import List
 import os
@@ -16,8 +16,13 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup code
-    rdb_client = await redis.from_url("redis://localhost:6379", decode_responses=True)
+    rdb_client = await redis.from_url("redis://redis:6379", decode_responses=True)
     app.state.redis = rdb_client
+
+    logger.info("Connected to Redis")
+    pong = await rdb_client.ping()
+    logger.info(f"Redis ping response: {pong}")
+
     yield
     # Shutdown code
     await app.state.redis.close()
@@ -151,4 +156,4 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
-# Run with: uvicorn main:app --reload
+# Run with: uvicorn main:src --reload

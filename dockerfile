@@ -19,7 +19,7 @@ COPY . .
 EXPOSE 8000
 
 # Run FastAPI server with uvicorn
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "src.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
 # build with - docker build -t <container-name>:<tag> .
 # run with - docker run -p 8000:8000 <container-name>:<tag>
