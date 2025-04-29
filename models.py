@@ -17,11 +17,14 @@ class StepType(Enum):
     parallel = "parallel"
     sequential = "sequential"
 
-class Step(BaseModel):
+class StepInput(BaseModel):
     type: StepType
-    tasks: Union[List[TaskStatus],Dict[str, TaskStatus]]
+    tasks: List[str]
+
+class StepRuntime(StepInput):
+    tasks: Dict[str, TaskStatus]
     workflow_id: Optional[str] = None
     step_idx: Optional[int] = None
 
 class WorkflowRequest(BaseModel):
-    steps: List[Step] = STEPS_DEBUG_VALUE
+    steps: List[StepInput] = STEPS_DEBUG_VALUE
