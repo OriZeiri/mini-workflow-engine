@@ -36,25 +36,21 @@ tasks_mapping = {
 
 async def run_task(run_id: str, task_name: str, step_idx: int):
     logger.debug(f"Running task: {task_name} for run_id: {run_id}")
-    if task_name in tasks_mapping:
-        task = tasks_mapping[task_name]
-        try:
-            # Simulate task execution
-            runs[run_id][STEPS_KEY][step_idx].tasks[task_name] = TaskStatus.running
-            # Task execution
-            result = await asyncio.to_thread(task)
-            logger.debug(f"Task {task_name} completed with result: {result}")
-            runs[run_id][STEPS_KEY][step_idx].tasks[task_name] = TaskStatus.success
-            return result
-        except Exception as e:
-            # Handle task failure
-            runs[run_id][STEPS_KEY][step_idx].tasks[task_name] = TaskStatus.failed
-            logger.error(f"Task {task_name} failed with error: {e}")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-    else:
-        logger.error(f"Task {task_name} not found in task mapping")
-        runs[run_id][STEPS_KEY][step_idx].tasks[task_name] = TaskStatus.failed
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task {task_name} not found")
+    if task_name not in tasks_mapping:
+        logger.error(f"Task {task_name} not found!")
+        runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.failed
+        return  # just mark failed, don't throw
+
+    task = tasks_mapping[task_name]
+
+    try:
+        runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.running
+        result = await asyncio.to_thread(task)
+        runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.success
+        return result
+    except Exception as e:
+        runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.failed
+        logger.error(f"Task {task_name} failed with error: {e}")
 
 def debug_only():
     if not DEBUG:
