@@ -9,19 +9,18 @@ from src.models import StepRuntime, StepType, TaskStatus
 
 @pytest.fixture
 def mock_redis():
+    """Patch Redis client used in app.state.redis for isolated unit tests."""
     with patch("src.app.redis.from_url", new_callable=AsyncMock) as mock_from_url:
         mock_instance = AsyncMock()
         mock_from_url.return_value = mock_instance
         yield mock_instance
 
 
-# ✅ Test 1: POST /workflow (happy path)
 @pytest.mark.asyncio
 async def test_post_workflow_success(mock_redis):
+    """Test POST /workflow returns 200 and saves steps to Redis."""
     app.state.redis = mock_redis
-    steps = [
-        {"type": "sequential", "tasks": ["task_a", "task_b"]}
-    ]
+    steps = [{"type": "sequential", "tasks": ["task_a", "task_b"]}]
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -34,9 +33,9 @@ async def test_post_workflow_success(mock_redis):
     mock_redis.hset.assert_called_once()
 
 
-# ✅ Test 2: run_task success and update
 @pytest.mark.asyncio
 async def test_run_task_success_updates_status():
+    """Test that run_task() marks task as success and calls Redis hset."""
     step = StepRuntime(type=StepType.sequential, tasks={"task_a": TaskStatus.pending}, step_idx=0)
     steps = [step]
     mock_redis = AsyncMock()
@@ -47,9 +46,9 @@ async def test_run_task_success_updates_status():
     mock_redis.hset.assert_called_once()
 
 
-# ✅ Test 3: run_task unknown task sets failed
 @pytest.mark.asyncio
 async def test_run_task_unknown_sets_failed():
+    """Test that run_task() handles unknown tasks and sets status to failed."""
     step = StepRuntime(type=StepType.sequential, tasks={"does_not_exist": TaskStatus.pending}, step_idx=0)
     steps = [step]
     mock_redis = AsyncMock()
@@ -62,15 +61,14 @@ async def test_run_task_unknown_sets_failed():
 
 @pytest.mark.asyncio
 async def test_get_workflow_status_success(mock_redis):
+    """Test GET /workflow_status/{run_id} returns correct step data from Redis."""
     app.state.redis = mock_redis
     run_id = "test_run_id"
 
-    # Mock Redis hgetall response
-    steps_data = [
-        {"type": "sequential", "tasks": {"task_a": "pending"}, "step_idx": 0}
-    ]
     mock_redis.hgetall.return_value = {
-        "steps": json.dumps(steps_data)
+        "steps": json.dumps([
+            {"type": "sequential", "tasks": {"task_a": "pending"}, "step_idx": 0}
+        ])
     }
 
     transport = ASGITransport(app=app)
@@ -84,10 +82,9 @@ async def test_get_workflow_status_success(mock_redis):
     assert body["steps"][0]["tasks"]["task_a"] == "pending"
 
 
-import os
-
 @pytest.mark.asyncio
 async def test_get_runs_debug_true(mock_redis):
+    """Test GET /runs returns list of run_ids if DEBUG=True."""
     app.state.redis = mock_redis
     from src import app as app_module
     app_module.DEBUG = True
@@ -105,6 +102,7 @@ async def test_get_runs_debug_true(mock_redis):
 
 @pytest.mark.asyncio
 async def test_get_runs_debug_false(mock_redis):
+    """Test GET /runs returns 403 Forbidden if DEBUG=False."""
     app.state.redis = mock_redis
     from src import app as app_module
     app_module.DEBUG = False
@@ -114,4 +112,3 @@ async def test_get_runs_debug_false(mock_redis):
         resp = await ac.get("/runs")
 
     assert resp.status_code == 403
-
