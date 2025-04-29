@@ -101,7 +101,6 @@ async def run_task(run_id: str,
 def debug_only():
     """
     Dependency to restrict access to debug-only endpoints.
-
     Raises 403 Forbidden if DEBUG is not enabled.
     """
     if not DEBUG:
@@ -111,7 +110,6 @@ def debug_only():
 async def get_runs(request: Request):
     """
     Returns a list of all workflow run IDs stored in Redis.
-
     Requires DEBUG mode enabled.
     """
     rdb_client = request.app.state.redis
