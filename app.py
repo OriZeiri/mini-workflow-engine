@@ -154,10 +154,12 @@ async def run_workflow(request:Request, workflow: WorkflowRequest):
     async def runner(steps_list: List[StepRuntime]):
        for step in steps_list:
             if step.type == StepType.parallel:
+                logger.debug("running parallel steps")
                 await asyncio.gather(
                     *[run_task(run_id, task, rdb) for task in step.tasks]
                 )
             elif step.type == StepType.sequential:
+                logger.debug("running sequential steps")
                 for task in step.tasks:
                     await run_task(run_id, task, rdb)
 
@@ -172,21 +174,20 @@ async def run_workflow(request:Request, workflow: WorkflowRequest):
     )
 
 @app.get("/workflow_status/{run_id}")
-async def workflow_status(run_id: str):
-    if run_id not in runs:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run ID not found")
+async def workflow_status(run_id: str, request: Request):
+    rdb_client = request.app.state.redis
 
-    steps:List[StepRuntime] = runs[run_id]["steps"]
-    serialized_steps = [
-        {
-            "step_idx": step.step_idx,
-            "type": step.type.value,
-            "tasks": {task: task_status.value for task, task_status in step.tasks.items()}
-        }
-        for step in steps
-    ]
+    data = await rdb_client.hgetall(run_id)
 
-    return {"run_id": run_id, "steps": serialized_steps}
+    if not data:
+        raise HTTPException(status_code=404, detail="Run ID not found")
+
+    steps = json.loads(data["steps"])
+
+    return {
+        "run_id": run_id,
+        "steps": steps,
+    }
 
 if __name__ == "__main__":
     import uvicorn
