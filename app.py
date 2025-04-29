@@ -50,23 +50,71 @@ tasks_mapping = {
     "task_c": task_c
 }
 
-async def run_task(run_id: str, task_name: str, step_idx: int):
+async def run_task(run_id: str, task_name: str, rdb_conn):
     logger.debug(f"Running task: {task_name} for run_id: {run_id}")
-    if task_name not in tasks_mapping:
-        logger.error(f"Task {task_name} not found!")
-        runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.failed
-        return  # just mark failed, don't throw
+    # if task_name not in tasks_mapping:
+    #     logger.error(f"Task {task_name} not found!")
+    #     runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.failed
+    #     return  # just mark failed, don't throw
+    #
+    # task = tasks_mapping[task_name]
+    #
+    # try:
+    #     runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.running
+    #     result = await asyncio.to_thread(task)
+    #     runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.success
+    #     logger.debug("Task completed successfully")
+    #     return result
+    # except Exception as e:
+    #     runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.failed
+    #     logger.error(f"Task {task_name} failed with error: {e}")
 
-    task = tasks_mapping[task_name]
+    # Fetch current workflow state
+    data = await rdb_conn.hgetall(run_id)
+    if not data:
+        logger.error(f"Run ID {run_id} not found in Redis")
+        return
 
+    # Find the right step
+    steps = [StepRuntime.deserialize(data=step) for step in json.loads(data[STEPS_KEY])]
+    step = next((step for step in steps if task_name in step.tasks), None)
+    logger.debug(f"step: {step}")
+    if not step:
+        logger.error(f"Task {task_name} not found in any step")
+        return
+
+    # Check if task function exists
+    task_func = tasks_mapping.get(task_name)
+    if not task_func:
+        logger.error(f"Task {task_name} not found in tasks_mapping")
+        step.tasks[task_name] = TaskStatus.failed
+
+        await rdb_conn.hset(run_id, mapping={
+            "steps": json.dumps([s.serialize() for s in steps]),
+        })
+        return
+
+    # Run the task
     try:
-        runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.running
-        result = await asyncio.to_thread(task)
-        runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.success
-        return result
+        step.tasks[task_name] = TaskStatus.running
+        await rdb_conn.hset(run_id, mapping={
+            "steps": json.dumps([s.serialize() for s in steps]),
+        })
+
+        await asyncio.to_thread(task_func)
+        step.tasks[task_name] = TaskStatus.success
+
     except Exception as e:
-        runs[run_id]["steps"][step_idx].tasks[task_name] = TaskStatus.failed
         logger.error(f"Task {task_name} failed with error: {e}")
+        step.tasks[task_name] = TaskStatus.failed
+
+    finally:
+        # ALWAYS update Redis with final task status (success OR failed)
+        await rdb_conn.hset(run_id, mapping={
+            "steps": json.dumps([s.serialize() for s in steps]),
+        })
+
+        logger.debug(f"Task {task_name} finished for run {run_id}")
 
 def debug_only():
     if not DEBUG:
